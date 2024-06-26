@@ -9,7 +9,6 @@ class SNN(torch.nn.Module):
             self, 
             layers: list = [784,1024,26], 
             beta: torch.Tensor = torch.tensor(0.8), 
-            spike_grad: Any = snntorch.surrogate.FastSigmoid(),
             num_steps: int = 100,
             threshold: float = 0.01,
             tau: int = 5
@@ -22,33 +21,40 @@ class SNN(torch.nn.Module):
         self.tau = tau
         self.num_layer = len(layers) - 1
 
-        for idx in range(len(layers) - 1):
-            # this is black magic and bad practice and never should be used, but we need this because torch is fucking picky.
-            exec(f'self.con{idx} = torch.nn.Linear(layers[idx], layers[idx + 1])')
-            exec(f'self.lay{idx} = snntorch.Leaky(beta = beta, spike_grad = spike_grad)')
+        assert len(layers) == 3, 'currently this supports only 1 hidden and one output layer'
 
+        self.fc1 = torch.nn.Linear(layers[0], layers[1])
+        self.lif1 = snntorch.Leaky(beta = beta)
+        self.fc2 = torch.nn.Linear(layers[1], layers[2])
+        self.lif2 = snntorch.Leaky(beta = beta)
         
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-
-        rec_mem = torch.empty(size = (self.num_layer, self.num_steps + 1), dtype = torch.float32)
-        rec_spk = torch.empty(size = (self.num_layer, self.num_steps + 1), dtype = torch.int8)
-        spk = x
-
-        for step in range(self.num_steps):
-            
-            for idx in range(self.num_layer):
-                exec(f'rec_mem[{idx}, step] = self.lay{idx}.reset_mem()')
-                exec(f'cur = self.con{idx}(spk)')
-                exec(f'rec_spk[{idx}, step + 1], rec_mem[{idx}, step + 1] = self.lay{idx}(cur, rec_mem[{idx}, step])')
-
         # TODO: make return spikes in a way that the optimizer is able to distinguish which class should be there with what probability.
         #       IDEA: the neuron that spikes first determines the class - one could take the max classes and substract the idx of the spiking neuron, then softmax
-        return rec_spk[-1,1:], rec_mem[-1,1:]
-    
-    def train(
+        
+        
+        # Initialize hidden states at t=0
+        mem1 = self.lif1.init_leaky()
+        mem2 = self.lif2.init_leaky()
+
+        # Record the final layer
+        spk2_rec = []
+        mem2_rec = []
+
+        for step in range(self.num_steps):
+            cur1 = self.fc1(x[step])
+            spk1, mem1 = self.lif1(cur1, mem1)
+            cur2 = self.fc2(spk1)
+            spk2, mem2 = self.lif2(cur2, mem2)
+            spk2_rec.append(spk2)
+            mem2_rec.append(mem2)
+
+        return torch.stack(spk2_rec, dim=0), torch.stack(mem2_rec, dim=0)
+            
+    def training_loop(
             self, 
-            train: list[torch.Tensor, torch.utils.data.DataLoader] = None, 
-            test: list[torch.Tensor, torch.utils.data.DataLoader] = None, 
+            train: Any = None, 
+            test: Any = None, 
             epochs: int = 25
         ) -> tuple[torch.Tensor, torch.Tensor]:
 
@@ -73,9 +79,13 @@ class SNN(torch.nn.Module):
                 self.train()
                 spk_rec, mem_rec = self(x)
 
-                loss_val = torch.zeros((1), dtype = torch.float, device = device)
-                for step in range(self.num_steps):
-                    loss_val += self.loss(mem_rec[step], target)
+                if target.item() < 26:
+                    loss_val = self.loss(mem_rec, target)
+
+                if target.item() == 0: print('yei')
+                if target.item() == 26: continue
+                
+                # loss_val = self.loss(mem_rec, target)
 
 
                 self.optimiser.zero_grad()
@@ -99,7 +109,7 @@ class SNN(torch.nn.Module):
                         normalize = True, 
                         linear = True
                     )
-                    pass
+                    continue
 
         
     
