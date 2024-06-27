@@ -42,11 +42,9 @@ def plot_snn_spikes(spk_in, spk1_rec, spk2_rec, title):
 
 def get_emnist_letters(
         transform: Any = transforms.ToTensor(), 
+        target_transform: Any = transforms.ToTensor(),
         subset: int = None, 
-        batch_size: int = 128,
-        threshold: float = 0.01,
-        tau: int = 5,
-        num_steps: int = 100
+        batch_size: int = 128
     ) -> object:
     '''Function to get the letters of the EMNIST dataset - like MNIST, just with letters'''
     
@@ -55,7 +53,8 @@ def get_emnist_letters(
         split = 'letters',
         train = True,
         download = True,
-        transform = transform
+        transform = transform,
+        target_transform = target_transform
     )
 
     test = datasets.EMNIST(
@@ -63,7 +62,8 @@ def get_emnist_letters(
         split = 'letters',
         train = False,
         download = True,
-        transform = transform
+        transform = transform,
+        target_transform = target_transform
     )
     
     if subset:
@@ -123,14 +123,16 @@ if __name__ == "__main__":
             transforms.Normalize((0,), (1,)),
             transforms.Lambda(lambda x: x.reshape(num_neuro_in))
     ])
+
+    target_transf = transforms.Compose([
+        transforms.Lambda(lambda x: x -1 )
+    ])
     
     train, test = get_emnist_letters(
         transform = transf, 
+        target_transform = target_transf,
         subset = subset, 
-        batch_size = batch_size,
-        threshold = threshold, 
-        tau = tau,
-        num_steps = steps
+        batch_size = batch_size
     )
     
     # try stuff with only one minibatch
