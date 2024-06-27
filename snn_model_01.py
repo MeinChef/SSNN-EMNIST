@@ -3,6 +3,7 @@ import torch.utils.data
 import snntorch
 import snntorch.spikegen
 from typing import Any
+import numpy as np
 
 class SNN(torch.nn.Module):
     def __init__(
@@ -20,6 +21,7 @@ class SNN(torch.nn.Module):
         self.threshold = threshold
         self.tau = tau
         self.num_layer = len(layers) - 1
+        
 
         assert len(layers) == 3, 'currently this supports only 1 hidden and one output layer'
 
@@ -58,14 +60,25 @@ class SNN(torch.nn.Module):
             epochs: int = 25
         ) -> tuple[torch.Tensor, torch.Tensor]:
 
+        train_acc = []
+        train_loss = []
+        test_acc = []
+        test_loss = []
+
+        train_accs = []
+        train_losss = []
+        test_accs = []
+        test_losss = []
+
+
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
         for epoch in range(epochs):
-            train = iter(train)
             for x, target in train:
                 x.to(device)
                 target.to(device)
 
+                # latency encoding of inputs
                 x = snntorch.spikegen.latency(
                     data = x, 
                     num_steps = self.num_steps, 
@@ -80,27 +93,29 @@ class SNN(torch.nn.Module):
                 self.train()
                 spk_rec, mem_rec = self(x)
 
-                if target.item() < 26:
-                    loss_val = self.loss(mem_rec, target)
+                # calculate loss
+                loss_val = self.loss(mem_rec, target)
 
-                if target.item() == 0: print('yei')
-                if target.item() == 26: continue
-                
-                # loss_val = self.loss(mem_rec, target)
+                train_loss.append(loss_val.item())
+                #####train_acc.append(np.mean(np.argmax(x, -1) == np.argmax(target, -1)))
 
-
+                # clear prev gradients, calculate gradients, weight update
                 self.optimiser.zero_grad()
                 loss_val.backward()
                 self.optimiser.step()
             
+                                  
 
         
             # test loop
             with torch.no_grad():
+                self.eval()
+
                 for x, target in test:
                     x.to(device)
                     target.to(device)
 
+                    # latency encoding of inputs
                     x = snntorch.spikegen.latency(
                         data = x, 
                         num_steps = self.num_steps, 
@@ -110,7 +125,28 @@ class SNN(torch.nn.Module):
                         normalize = True, 
                         linear = True
                     )
-                    continue
+                    
+                    # forward pass
+                    spk_rec, mem_rec = self(x)
+
+                    # calculate loss
+                    loss_val = self.loss(mem_rec, target)
+
+                    test_loss.append(loss_val.item())
+
+            
+            #train_accs.append()
+            train_losss.append(np.mean(train_loss))
+            #test_accs.append()
+            test_losss.append(np.mean(test_loss))
+
+
+
+            print(f'Train Loss Epoch {epoch}: {train_losss}')
+            print(f'Test Loss Epoch {epoch}: {test_losss}')
+            print(f'Train Acc Epoch {epoch}: {train_acc}')
+            print(f'Test Acc Epoch {epoch}: {test_acc}')
+                    
 
         
     
@@ -119,4 +155,3 @@ class SNN(torch.nn.Module):
 
     def set_loss(self, loss: Any = torch.nn.CrossEntropyLoss()) -> None:
         self.loss = loss
-
