@@ -100,7 +100,7 @@ class SNN(torch.nn.Module):
                 # metrics
                 train_loss.append(loss_val.item())
                 #####train_acc.append(np.mean(np.argmax(x, -1) == np.argmax(target, -1)))
-                train_acc.append(self.calc_accuracy(x, target))
+                train_acc.append(self.calc_accuracy(spk_rec, x, target))
 
                 # clear prev gradients, calculate gradients, weight update
                 self.optimiser.zero_grad()
@@ -137,7 +137,7 @@ class SNN(torch.nn.Module):
 
                     # metrics
                     test_loss.append(loss_val.item())
-                    test_acc.append(self.calc_accuracy(x, target))
+                    test_acc.append(self.calc_accuracy(spk_rec, x, target))
 
             
             train_accs.append(np.mean(train_acc))
@@ -166,8 +166,8 @@ class SNN(torch.nn.Module):
     def set_loss(self, loss: Any = torch.nn.CrossEntropyLoss()) -> None:
         self.loss = loss
 
-    def calc_accuracy(self, x, targets):
-        output, _ = self(x)
+    def calc_accuracy(spk_rec, x, targets):
+        output, _ = spk_rec
         _, idx = output.sum(dim=0).max(1)
         acc = np.mean((targets == idx).detach().cpu().numpy())
 
