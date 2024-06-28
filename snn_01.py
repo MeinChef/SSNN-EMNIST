@@ -99,7 +99,7 @@ if __name__ == "__main__":
     
     subset = 10
     batch_size = 1024
-    epochs = 2
+    epochs = 5
 
     steps = 100     # simulation time steps
     tau = 5         # time constant in ms
