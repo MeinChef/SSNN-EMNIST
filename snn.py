@@ -26,7 +26,7 @@ def plot_snn_spikes(spk_in, spk1_rec, spk2_rec, title):
     # Plot input spikes
     splt.raster(spk_in[:,0], ax[0], s=0.03, c="black")
     ax[0].set_ylabel("Input Spikes")
-    ax[0].set_title(title)
+    ax[0].set_title("Metrics")
 
     # Plot hidden layer spikes
     splt.raster(spk1_rec.reshape(101, -1), ax[1], s = 0.05, c="black")
@@ -38,6 +38,8 @@ def plot_snn_spikes(spk_in, spk1_rec, spk2_rec, title):
     ax[2].set_ylim([0, 26])
 
     plt.show()
+
+
 
 
 def get_emnist_letters(
@@ -97,9 +99,10 @@ if __name__ == "__main__":
     
     subset = 10
     batch_size = 1024
+    epochs = 4
 
     steps = 100     # simulation time steps
-    tau = 5         # time constant in ms
+    tau = 40         # time constant in ms
     threshold = 0.5
     delta_t = torch.tensor(1)
     beta = torch.exp(-delta_t / torch.tensor(tau)) # no idea why this is the correct beta current, but the documentation said so
@@ -115,7 +118,7 @@ if __name__ == "__main__":
     # spk_out = torch.zeros((steps + 1, batch_size, num_classes))
 
 
-
+    # basic preprocessing
     transf = transforms.Compose([
             transforms.Resize((28,28)),
             transforms.Grayscale(),
@@ -124,10 +127,12 @@ if __name__ == "__main__":
             transforms.Lambda(lambda x: x.reshape(num_neuro_in))
     ])
 
+    # rescales targets from indices 1-26 to indices 0-25 (otherwise error)
     target_transf = transforms.Compose([
         transforms.Lambda(lambda x: x -1 )
     ])
     
+    # get data
     train, test = get_emnist_letters(
         transform = transf, 
         target_transform = target_transf,
@@ -142,14 +147,8 @@ if __name__ == "__main__":
     # x = x.reshape([steps, batch_size, num_neuro_in]).to(torch.int8)
     # lif = snn.Leaky(threshold = threshold)
     # plot_snn_spikes(x,spk_hidden, spk_out, 'something')
-    mini = 1000
-    maxi = 0
-    for _, target in train:
-        mini = min(mini, target.min().item())
-        maxi = max(maxi, target.max().item())    
 
-    # min should be 0
-    # max 25
+
     breakpoint()
     model = snn_model.SNN(
         layers = [num_neuro_in, num_neuro_hid, num_classes],
@@ -161,7 +160,6 @@ if __name__ == "__main__":
     )
     model.set_optimiser()
     model.set_loss(snntorch.functional.loss.ce_temporal_loss())
-    model.training_loop(train, test, 1)
-
+    model.training_loop(train, test, epochs)
     
     breakpoint()
