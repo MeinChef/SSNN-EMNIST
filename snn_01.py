@@ -39,25 +39,6 @@ def plot_snn_spikes(spk_in, spk1_rec, spk2_rec, title):
 
     plt.show()
 
-def plot_metrics(epochs, train_loss, test_loss, train_acc, test_acc):
-    fig, ax = plt.subplots(nrows = 1, ncols = 2, sharex = True)
-    
-    fig.set_size_inches(10, 5)
-        
-    ax[0].plot(range(len(epochs)), train_loss)
-    ax[0].set_xlabel('Epochs')
-    ax[0].set_ylabel('Accuracy in %')
-    ax[0].set_title('Accuracy of the different models')
-    ax[0].legend(title = '[Layers] Embedding')
-    
-    
-    ax[1].plot(range(len(epochs)), test_loss)
-    ax[1].set_xlabel('Epochs')
-    ax[1].set_ylabel('Loss')
-    ax[1].set_title('Loss of the different models')
-    ax[1].legend(title = '[Layers] Embedding')
-
-    plt.show()
 
 
 

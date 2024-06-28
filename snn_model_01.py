@@ -4,6 +4,7 @@ import snntorch
 import snntorch.spikegen
 from typing import Any
 import numpy as np
+import matplotlib.pyplot as plt
 
 class SNN(torch.nn.Module):
     def __init__(
@@ -96,8 +97,10 @@ class SNN(torch.nn.Module):
                 # calculate loss
                 loss_val = self.loss(mem_rec, target)
 
+                # metrics
                 train_loss.append(loss_val.item())
                 #####train_acc.append(np.mean(np.argmax(x, -1) == np.argmax(target, -1)))
+                train_acc.append(self.calc_accuracy(x, target))
 
                 # clear prev gradients, calculate gradients, weight update
                 self.optimiser.zero_grad()
@@ -132,20 +135,27 @@ class SNN(torch.nn.Module):
                     # calculate loss
                     loss_val = self.loss(mem_rec, target)
 
+                    # metrics
                     test_loss.append(loss_val.item())
+                    test_acc.append(self.calc_accuracy(x, target))
 
             
-            #train_accs.append()
+            train_accs.append(np.mean(train_acc))
             train_losss.append(np.mean(train_loss))
-            #test_accs.append()
+            test_accs.append(np.mean(test_acc))
             test_losss.append(np.mean(test_loss))
 
 
 
-            print(f'Train Loss Epoch {epoch}: {train_losss}')
-            print(f'Test Loss Epoch {epoch}: {test_losss}')
-            print(f'Train Acc Epoch {epoch}: {train_acc}')
-            print(f'Test Acc Epoch {epoch}: {test_acc}')
+            print(f'Train Losses after Epoch {epoch}: {train_losss}')
+            print(f'Test Losses after Epoch {epoch}: {test_losss}')
+            print(f'Train Accs after Epoch {epoch}: {train_accs}')
+            print(f'Test Accs after Epoch {epoch}: {test_accs}')
+            self.plot_metrics(epochs = epochs,
+                         train_loss = train_losss, 
+                         test_loss = test_losss, 
+                         train_acc = train_accs, 
+                         test_acc = test_accs)
                     
 
         
@@ -155,3 +165,32 @@ class SNN(torch.nn.Module):
 
     def set_loss(self, loss: Any = torch.nn.CrossEntropyLoss()) -> None:
         self.loss = loss
+
+    def calc_accuracy(self, x, targets):
+        output, _ = self(x)
+        _, idx = output.sum(dim=0).max(1)
+        acc = np.mean((targets == idx).detach().cpu().numpy())
+
+        return acc
+
+    def plot_metrics(epochs, train_loss, test_loss, train_acc, test_acc):
+        fig, ax = plt.subplots(nrows = 1, ncols = 2, sharex = True)
+        
+        fig.set_size_inches(10, 5)
+            
+        ax[0].plot(range(len(epochs)), train_loss)
+        ax[0].plot(range(len(epochs)), train_acc)
+        ax[0].set_xlabel('Epochs')
+        ax[0].set_ylabel('Accuracy in %')
+        ax[0].set_title('Accuracy of the different models')
+        ax[0].legend(title = '[Layers] Embedding')
+        
+        
+        ax[1].plot(range(len(epochs)), test_loss)
+        ax[1].plot(range(len(epochs)), test_acc)
+        ax[1].set_xlabel('Epochs')
+        ax[1].set_ylabel('Loss')
+        ax[1].set_title('Loss of the different models')
+        ax[1].legend(title = '[Layers] Embedding')
+
+        plt.show()
