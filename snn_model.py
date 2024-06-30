@@ -6,6 +6,8 @@ from typing import Any
 import numpy as np
 import matplotlib.pyplot as plt
 
+from tqdm import tqdm
+
 class SNN(torch.nn.Module):
     def __init__(
             self, 
@@ -13,7 +15,8 @@ class SNN(torch.nn.Module):
             beta: torch.Tensor = torch.tensor(0.8), 
             num_steps: int = 100,
             threshold: float = 0.01,
-            tau: int = 5
+            tau: int = 5,
+            batch_size: int = 1024
         ) -> None:
 
         super().__init__()
@@ -22,9 +25,11 @@ class SNN(torch.nn.Module):
         self.threshold = threshold
         self.tau = tau
         self.num_layer = len(layers) - 1
-        self.layers = layers
+        self.out = layers[-1]
+        self.batch = batch_size
         
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
+        print(self.device)
 
         assert len(layers) == 3, 'currently this supports only 1 hidden and one output layer'
 
@@ -42,10 +47,14 @@ class SNN(torch.nn.Module):
         mem2 = self.lif2.init_leaky()
 
         # Record the final layer
-        spk2_rec = torch.empty((self.layers[2], self.num_steps), device = self.device) # forgot batchsize should be (time steps, batch size, neurons out)
-        mem2_rec = torch.empty((self.layers[2], self.num_steps), device = self.device)
+        
         mem2_recl = []
         spk2_recl = []
+        
+        # for some reason lists are a teeny tiny bit faster
+        # spk2_rec = torch.empty((self.num_steps, self.batch, self.out), device = self.device)
+        # mem2_rec = torch.empty((self.num_steps, self.batch, self.out), device = self.device)
+
         
         
         for step in range(self.num_steps):
@@ -57,11 +66,10 @@ class SNN(torch.nn.Module):
             mem2_recl.append(mem2)
             spk2_recl.append(spk2)
             
-            # breakpoint()
-            # for i in range(self.layers[2]):
-            #     spk2_rec[i,step] = spk2[i]
-            #     mem2_rec[i,step] = mem2[i]
-
+            # spk2_rec[step,:,:] = spk2
+            # mem2_rec[step,:,:] = mem2
+      
+        
         # return spk2_rec, mem2_rec
         return torch.stack(spk2_recl, dim = 0).to(self.device), torch.stack(mem2_recl, dim = 0).to(self.device)
             
@@ -83,7 +91,7 @@ class SNN(torch.nn.Module):
         test_losss = []
 
         for epoch in range(epochs):
-            for x, target in train:
+            for x, target in tqdm(train):
                 target = target.to(self.device)
 
                 # latency encoding of inputs

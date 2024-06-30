@@ -98,7 +98,7 @@ def get_emnist_letters(
 if __name__ == "__main__":
     
     subset = None
-    batch_size = 1024
+    batch_size = 2048
     epochs = 5
 
     steps = 100     # simulation time steps
@@ -159,11 +159,12 @@ if __name__ == "__main__":
         # spike_grad = snntorch.surrogate.FastSigmoid(),
         num_steps = steps,
         threshold = threshold,
-        tau = tau
+        tau = tau,
+        batch_size = batch_size
     )
-    # model.to(device)
     model.set_optimiser()
     model.set_loss(snntorch.functional.loss.ce_temporal_loss())
+    
     loss, acc = model.train_test_loop(train, test, epochs)
     
     breakpoint()
