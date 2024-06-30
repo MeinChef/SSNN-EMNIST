@@ -78,8 +78,8 @@ def get_emnist_letters(
         batch_size = batch_size, 
         shuffle = True, 
         drop_last = True, 
-        prefetch_factor = None, 
-        num_workers = 0 # num_workers should be threads (-1, to leave some thread for other programs)
+        prefetch_factor = 5, 
+        num_workers = torch.get_num_threads() - 1 # num_workers should be threads (-1, to leave some thread for other programs)
     ) 
 
     test = torch.utils.data.DataLoader(
@@ -87,8 +87,8 @@ def get_emnist_letters(
         batch_size = batch_size, 
         shuffle = True, 
         drop_last = True, 
-        prefetch_factor = None, 
-        num_workers = 0 # num_workers should be threads (-1, to leave some thread for other programs)
+        prefetch_factor = 5, 
+        num_workers = torch.get_num_threads() - 1 # num_workers should be threads (-1, to leave some thread for other programs)
     ) 
 
     return train, test
@@ -97,13 +97,13 @@ def get_emnist_letters(
 
 if __name__ == "__main__":
     
-    subset = 10
+    subset = None
     batch_size = 1024
-    epochs = 4
+    epochs = 5
 
     steps = 100     # simulation time steps
-    tau = 40         # time constant in ms
-    threshold = 0.5
+    tau = 5        # time constant in ms
+    threshold = 0.01
     delta_t = torch.tensor(1)
     beta = torch.exp(-delta_t / torch.tensor(tau)) # no idea why this is the correct beta current, but the documentation said so
 
@@ -111,7 +111,10 @@ if __name__ == "__main__":
     num_neuro_in = 784 # input features, 784 = 28*28
     num_neuro_hid = 1024
     num_classes = 26 # also neurons out
+    
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
+    
     # mem_hidden = torch.zeros((steps + 1, batch_size, num_neuro_hid))
     # spk_hidden = torch.zeros((steps + 1, batch_size, num_neuro_hid))
     # mem_out = torch.zeros((steps + 1, batch_size, num_classes))
@@ -149,7 +152,7 @@ if __name__ == "__main__":
     # plot_snn_spikes(x,spk_hidden, spk_out, 'something')
 
 
-    breakpoint()
+    
     model = snn_model.SNN(
         layers = [num_neuro_in, num_neuro_hid, num_classes],
         beta = beta,
@@ -158,8 +161,9 @@ if __name__ == "__main__":
         threshold = threshold,
         tau = tau
     )
+    # model.to(device)
     model.set_optimiser()
     model.set_loss(snntorch.functional.loss.ce_temporal_loss())
-    model.training_loop(train, test, epochs)
+    loss, acc = model.train_test_loop(train, test, epochs)
     
     breakpoint()

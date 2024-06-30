@@ -22,7 +22,9 @@ class SNN(torch.nn.Module):
         self.threshold = threshold
         self.tau = tau
         self.num_layer = len(layers) - 1
+        self.layers = layers
         
+        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 
         assert len(layers) == 3, 'currently this supports only 1 hidden and one output layer'
 
@@ -31,35 +33,44 @@ class SNN(torch.nn.Module):
         self.fc2 = torch.nn.Linear(layers[1], layers[2])
         self.lif2 = snntorch.Leaky(beta = beta)
         
+        self.to(self.device)
+        
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # TODO: make return spikes in a way that the optimizer is able to distinguish which class should be there with what probability.
-        #       IDEA: the neuron that spikes first determines the class - one could take the max classes and substract the idx of the spiking neuron, then softmax
-        
-        
+
         # Initialize hidden states at t=0
         mem1 = self.lif1.init_leaky()
         mem2 = self.lif2.init_leaky()
 
         # Record the final layer
-        spk2_rec = []
-        mem2_rec = []
-
+        spk2_rec = torch.empty((self.layers[2], self.num_steps), device = self.device) # forgot batchsize should be (time steps, batch size, neurons out)
+        mem2_rec = torch.empty((self.layers[2], self.num_steps), device = self.device)
+        mem2_recl = []
+        spk2_recl = []
+        
+        
         for step in range(self.num_steps):
             cur1 = self.fc1(x[step])
             spk1, mem1 = self.lif1(cur1, mem1)
             cur2 = self.fc2(spk1)
             spk2, mem2 = self.lif2(cur2, mem2)
-            spk2_rec.append(spk2)
-            mem2_rec.append(mem2)
-
-        return torch.stack(spk2_rec, dim=0), torch.stack(mem2_rec, dim=0)
             
-    def training_loop(
+            mem2_recl.append(mem2)
+            spk2_recl.append(spk2)
+            
+            # breakpoint()
+            # for i in range(self.layers[2]):
+            #     spk2_rec[i,step] = spk2[i]
+            #     mem2_rec[i,step] = mem2[i]
+
+        # return spk2_rec, mem2_rec
+        return torch.stack(spk2_recl, dim = 0).to(self.device), torch.stack(mem2_recl, dim = 0).to(self.device)
+            
+    def train_test_loop(
             self, 
             train: Any = None, 
             test: Any = None, 
             epochs: int = 25
-        ) -> tuple[torch.Tensor, torch.Tensor]:
+        ) -> tuple[tuple[list, list], tuple[list, list]]:
 
         train_acc = []
         train_loss = []
@@ -71,13 +82,9 @@ class SNN(torch.nn.Module):
         test_accs = []
         test_losss = []
 
-
-        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
-
         for epoch in range(epochs):
             for x, target in train:
-                x.to(device)
-                target.to(device)
+                target = target.to(self.device)
 
                 # latency encoding of inputs
                 x = snntorch.spikegen.latency(
@@ -88,18 +95,17 @@ class SNN(torch.nn.Module):
                     clip = True, 
                     normalize = True, 
                     linear = True
-                )
+                ).to(self.device)
                 
                 # forward pass
                 self.train()
-                spk_rec, mem_rec = self(x)
+                spk_rec, _ = self(x)
 
                 # calculate loss
-                loss_val = self.loss(mem_rec, target)
+                loss_val = self.loss(spk_rec, target)
 
                 # metrics
                 train_loss.append(loss_val.item())
-                #####train_acc.append(np.mean(np.argmax(x, -1) == np.argmax(target, -1)))
                 train_acc.append(snntorch.functional.acc.accuracy_temporal(spk_rec, target))
 
                 # clear prev gradients, calculate gradients, weight update
@@ -115,8 +121,7 @@ class SNN(torch.nn.Module):
                 self.eval()
 
                 for x, target in test:
-                    x.to(device)
-                    target.to(device)
+                    target = target.to(self.device)
 
                     # latency encoding of inputs
                     x = snntorch.spikegen.latency(
@@ -127,13 +132,13 @@ class SNN(torch.nn.Module):
                         clip = True, 
                         normalize = True, 
                         linear = True
-                    )
+                    ).to(self.device)
                     
                     # forward pass
-                    spk_rec, mem_rec = self(x)
+                    spk_rec, _ = self(x)
 
                     # calculate loss
-                    loss_val = self.loss(mem_rec, target)
+                    loss_val = self.loss(spk_rec, target)
 
                     # metrics
                     test_loss.append(loss_val.item())
@@ -146,17 +151,20 @@ class SNN(torch.nn.Module):
             test_losss.append(np.mean(test_loss))
 
 
+            print(f'Train Losses after Epoch {epoch}: {train_losss[epoch]}')
+            print(f'Test Losses after Epoch {epoch}: {test_losss[epoch]}')
+            print(f'Train Accs after Epoch {epoch}: {train_accs[epoch]}')
+            print(f'Test Accs after Epoch {epoch}: {test_accs[epoch]}')
 
-            print(f'Train Losses after Epoch {epoch}: {train_losss}')
-            print(f'Test Losses after Epoch {epoch}: {test_losss}')
-            print(f'Train Accs after Epoch {epoch}: {train_accs}')
-            print(f'Test Accs after Epoch {epoch}: {test_accs}')
-
-        self.plot_metrics(epochs = epochs,
-                            train_loss = train_losss, 
-                            test_loss = test_losss,
-                            train_acc = train_accs,
-                            test_acc = test_accs)
+        self.plot_metrics(
+            epochs = epochs,
+            train_loss = train_losss, 
+            test_loss = test_losss,
+            train_acc = train_accs,
+            test_acc = test_accs
+        )
+        
+        return (train_loss, test_loss), (train_acc, test_acc)
                     
 
         
@@ -167,17 +175,12 @@ class SNN(torch.nn.Module):
     def set_loss(self, loss: Any = torch.nn.CrossEntropyLoss()) -> None:
         self.loss = loss
 
-    def calc_accuracy(self, spk_rec, targets):
-        _, idx = spk_rec.sum(dim=0).max(1)
-        acc = np.mean((targets == idx).detach().cpu().numpy())
-
-        return acc
-
-    def plot_metrics(self, epochs, train_loss, test_loss, train_acc, test_acc):
+    def plot_metrics(self, epochs: int, train_loss: list, test_loss: list, train_acc: list, test_acc: list) -> None:
+        
         fig, ax = plt.subplots(nrows = 1, ncols = 2, sharex = True)
         
         fig.set_size_inches(10, 5)
-            
+        
         ax[0].plot(range(epochs), train_acc, label = "Training")
         ax[0].plot(range(epochs), test_acc, label = "Testing")
         ax[0].set_xlabel('Epochs')
@@ -192,6 +195,5 @@ class SNN(torch.nn.Module):
         ax[1].set_title('Loss')
         ax[1].legend()
 
-        plt.title("Metrics")
-        plt.suptitle(f'{self.tau=}, {self.threshold=}')
+        fig.suptitle(f'Metrics: tau={self.tau}, thresh={self.threshold}')
         plt.show()
