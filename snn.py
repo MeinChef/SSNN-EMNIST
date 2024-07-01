@@ -18,30 +18,6 @@ from torchvision import datasets, transforms
 import snn_model
 
 
-def plot_snn_spikes(spk_in, spk1_rec, spk2_rec, title):
-    # Generate Plots
-    fig, ax = plt.subplots(3, figsize=(8,7), sharex=True, 
-                            gridspec_kw = {'height_ratios': [1, 1, 0.4]})
-
-    # Plot input spikes
-    splt.raster(spk_in[:,0], ax[0], s=0.03, c="black")
-    ax[0].set_ylabel("Input Spikes")
-    ax[0].set_title("Metrics")
-
-    # Plot hidden layer spikes
-    splt.raster(spk1_rec.reshape(101, -1), ax[1], s = 0.05, c="black")
-    ax[1].set_ylabel("Hidden Layer")
-
-    # Plot output spikes
-    splt.raster(spk2_rec.reshape(101, -1), ax[2], c="black", marker="|")
-    ax[2].set_ylabel("Output Spikes")
-    ax[2].set_ylim([0, 26])
-
-    plt.show()
-
-
-
-
 def get_emnist_letters(
         transform: Any = transforms.ToTensor(), 
         target_transform: Any = transforms.ToTensor(),
@@ -50,6 +26,7 @@ def get_emnist_letters(
     ) -> object:
     '''Function to get the letters of the EMNIST dataset - like MNIST, just with letters'''
     
+    # get train subset of data
     train = datasets.EMNIST(
         root = 'data',
         split = 'letters',
@@ -59,6 +36,7 @@ def get_emnist_letters(
         target_transform = target_transform
     )
 
+    # get test subset of data
     test = datasets.EMNIST(
         root = 'data',
         split = 'letters',
@@ -68,11 +46,12 @@ def get_emnist_letters(
         target_transform = target_transform
     )
     
+    # if subset, specify which
     if subset:
         train = snntorch.utils.data_subset(train, subset)
         test  = snntorch.utils.data_subset(test, subset)
 
-
+    # load train subset of data
     train = torch.utils.data.DataLoader(
         train, 
         batch_size = batch_size, 
@@ -82,6 +61,7 @@ def get_emnist_letters(
         num_workers = torch.get_num_threads() - 1 # num_workers should be threads (-1, to leave some thread for other programs)
     ) 
 
+    # load test subset of data
     test = torch.utils.data.DataLoader(
         test, 
         batch_size = batch_size, 
@@ -97,29 +77,23 @@ def get_emnist_letters(
 
 if __name__ == "__main__":
     
-    subset = None
+    subset = None # if not "None" will train with less than the whole dataset, useful for testing the code, but training/testing done on whole dataset
     batch_size = 2048
     epochs = 5
 
-    steps = 100     # simulation time steps
-    tau = 5        # time constant in ms
-    threshold = 0.01
+    steps = 100 # simulation time steps
+    tau = 5 # time constant in ms
+    threshold = 0.01 # membrane threshold at which the neurons fire
     delta_t = torch.tensor(1)
     beta = torch.exp(-delta_t / torch.tensor(tau)) # no idea why this is the correct beta current, but the documentation said so
 
 
-    num_neuro_in = 784 # input features, 784 = 28*28
-    num_neuro_hid = 1024
-    num_classes = 26 # also neurons out
+    num_neuro_in = 784 # input features, 784 = 28*28, pixels of letter images
+    num_neuro_hid = 1024 # hidden layer number of neurons
+    num_classes = 26 # also neurons out, number of letters in the alphabet
     
+    # preparation for outsourcing to GPU
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
-
-    
-    # mem_hidden = torch.zeros((steps + 1, batch_size, num_neuro_hid))
-    # spk_hidden = torch.zeros((steps + 1, batch_size, num_neuro_hid))
-    # mem_out = torch.zeros((steps + 1, batch_size, num_classes))
-    # spk_out = torch.zeros((steps + 1, batch_size, num_classes))
-
 
     # basic preprocessing
     transf = transforms.Compose([
@@ -143,28 +117,21 @@ if __name__ == "__main__":
         batch_size = batch_size
     )
     
-    # try stuff with only one minibatch
-    # data = iter(train)
-    # x, target = next(data)
-    # target = target[0]
-    # x = x.reshape([steps, batch_size, num_neuro_in]).to(torch.int8)
-    # lif = snn.Leaky(threshold = threshold)
-    # plot_snn_spikes(x,spk_hidden, spk_out, 'something')
-
-
-    
+    # declare model from class
     model = snn_model.SNN(
         layers = [num_neuro_in, num_neuro_hid, num_classes],
         beta = beta,
-        # spike_grad = snntorch.surrogate.FastSigmoid(),
         num_steps = steps,
         threshold = threshold,
         tau = tau,
         batch_size = batch_size
     )
+
+    # set model optimiser and loss
+    # standard optimiser of this function is Adam
+    # temporal loss used for latency coding: the class with the first spike is being chosen
     model.set_optimiser()
     model.set_loss(snntorch.functional.loss.ce_temporal_loss())
     
+    # train/test model and return accuracy and loss
     loss, acc = model.train_test_loop(train, test, epochs)
-    
-    breakpoint()
